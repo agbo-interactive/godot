@@ -171,33 +171,27 @@ Transform2D Camera2D::get_camera_transform() {
 
 		if (limit_smoothing_enabled) {
 			// Apply horizontal limiting.
-			if (screen_rect.position.x < limit[SIDE_LEFT]) {
-				if (screen_rect.position.x + screen_rect.size.x > limit[SIDE_RIGHT]) {
-					// Split the limit difference horizontally.
-					camera_pos.x -= (screen_rect.position.x + screen_rect.size.x - limit[SIDE_RIGHT] + screen_rect.position.x - limit[SIDE_LEFT]) / 2;
-				} else {
-					// Only apply left limit.
-					camera_pos.x -= screen_rect.position.x - limit[SIDE_LEFT];
-				}
-			}
-			else if (screen_rect.position.x + screen_rect.size.x > limit[SIDE_RIGHT]) {
+			if (screen_rect.size.x > limit[SIDE_RIGHT] - limit[SIDE_LEFT]) {
+				// Split the limit difference horizontally.
+				camera_pos.x -= screen_rect.position.x + (screen_rect.size.x - limit[SIDE_RIGHT] - limit[SIDE_LEFT]) / 2;
+			} else if (screen_rect.position.x < limit[SIDE_LEFT]) {
+				// Only apply left limit.
+				camera_pos.x -= screen_rect.position.x - limit[SIDE_LEFT];
+			} else if (screen_rect.position.x + screen_rect.size.x > limit[SIDE_RIGHT]) {
 				// Only apply the right limit.
 				camera_pos.x -= screen_rect.position.x + screen_rect.size.x - limit[SIDE_RIGHT];
 			}
 
 			// Apply vertical limiting.
-			if (screen_rect.position.y + screen_rect.size.y > limit[SIDE_BOTTOM]) {
-				if (screen_rect.position.y < limit[SIDE_TOP]) {
-					// Split the limit difference vertically.
-					camera_pos.y -= (screen_rect.position.y + screen_rect.size.y - limit[SIDE_BOTTOM] + screen_rect.position.y - limit[SIDE_TOP]) / 2;
-				} else {
-					// Only apply the bottom limit.
-					camera_pos.y -= screen_rect.position.y + screen_rect.size.y - limit[SIDE_BOTTOM];
-				}
-			}
-			else if (screen_rect.position.y < limit[SIDE_TOP]) {
+			if (screen_rect.size.y > limit[SIDE_BOTTOM] - limit[SIDE_TOP]) {
+				// Split the limit difference vertically.
+				camera_pos.y -= screen_rect.position.y + (screen_rect.size.y - limit[SIDE_BOTTOM] - limit[SIDE_TOP]) / 2;
+			} else if (screen_rect.position.y < limit[SIDE_TOP]) {
 				// Only apply the top limit.
 				camera_pos.y -= screen_rect.position.y - limit[SIDE_TOP];
+			} else if (screen_rect.position.y + screen_rect.size.y > limit[SIDE_BOTTOM]) {
+				// Only apply the bottom limit.
+				camera_pos.y -= screen_rect.position.y + screen_rect.size.y - limit[SIDE_BOTTOM];
 			}
 		}
 
@@ -237,31 +231,29 @@ Transform2D Camera2D::get_camera_transform() {
 	Rect2 screen_rect(-screen_offset + ret_camera_pos, screen_size * zoom_scale);
 
 	if (!position_smoothing_enabled || !limit_smoothing_enabled) {
+		Point2 bottom_right_corner = Point2(screen_rect.position + 2.0 * (camera_pos - screen_rect.position));
 		// Apply horizontal limiting.
-		if (screen_rect.position.x < limit[SIDE_LEFT]) {
-			if (screen_rect.position.x + screen_rect.size.x > limit[SIDE_RIGHT]) {
-				// Split the limit difference horizontally.
-				screen_rect.position.x = (limit[SIDE_RIGHT] - screen_rect.size.x + limit[SIDE_LEFT]) / 2;
-			} else {
-				// Only apply left limit.
-				screen_rect.position.x = limit[SIDE_LEFT];
-			}
-		} else if (screen_rect.position.x + screen_rect.size.x > limit[SIDE_RIGHT]) {
-			screen_rect.position.x = limit[SIDE_RIGHT] - screen_rect.size.x;
+		if (bottom_right_corner.x - screen_rect.position.x > limit[SIDE_RIGHT] - limit[SIDE_LEFT]) {
+			// Split the difference horizontally (center it).
+			screen_rect.position.x = (limit[SIDE_LEFT] + limit[SIDE_RIGHT] - (bottom_right_corner.x - screen_rect.position.x)) / 2;
+		} else if (screen_rect.position.x < limit[SIDE_LEFT]) {
+			// Only apply left limit.
+			screen_rect.position.x = limit[SIDE_LEFT];
+		} else if (bottom_right_corner.x > limit[SIDE_RIGHT]) {
+			// Only apply right limit.
+			screen_rect.position.x = limit[SIDE_RIGHT] - (bottom_right_corner.x - screen_rect.position.x);
 		}
 
 		// Apply vertical limiting.
-		if (screen_rect.position.y + screen_rect.size.y > limit[SIDE_BOTTOM]) {
-			if (screen_rect.position.y < limit[SIDE_TOP]) {
-				// Split the limit difference vertically.
-				screen_rect.position.y = (limit[SIDE_TOP] + limit[SIDE_BOTTOM] - screen_rect.size.y) / 2;
-			} else {
-				// Only apply the bottom limit.
-				screen_rect.position.y = limit[SIDE_BOTTOM] - screen_rect.size.y;
-			}
+		if (bottom_right_corner.y - screen_rect.position.y > limit[SIDE_BOTTOM] - limit[SIDE_TOP]) {
+			// Split the limit difference vertically.
+			screen_rect.position.y = (limit[SIDE_TOP] + limit[SIDE_BOTTOM] - (bottom_right_corner.y - screen_rect.position.y)) / 2;
 		} else if (screen_rect.position.y < limit[SIDE_TOP]) {
 			// Only apply the top limit.
 			screen_rect.position.y = limit[SIDE_TOP];
+		} else if (bottom_right_corner.y > limit[SIDE_BOTTOM]) {
+			// Only apply the bottom limit.
+			screen_rect.position.y = limit[SIDE_BOTTOM] - (bottom_right_corner.y - screen_rect.position.y);
 		}
 	}
 
