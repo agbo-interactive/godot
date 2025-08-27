@@ -3601,7 +3601,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 
 		OS::get_singleton()->benchmark_end_measure("Startup", "Text Server");
 	}
-
+	
 	MAIN_PRINT("Main: Load Scene Types");
 
 	OS::get_singleton()->benchmark_begin_measure("Startup", "Scene");
@@ -3625,7 +3625,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 	register_driver_types();
 
 	register_scene_singletons();
-
+	register_server_singletons();
 	{
 		OS::get_singleton()->benchmark_begin_measure("Scene", "Modules and Extensions");
 
@@ -3700,8 +3700,6 @@ Error Main::setup2(bool p_show_boot_logo) {
 	MAIN_PRINT("Main: Load Physics");
 
 	initialize_physics();
-
-	register_server_singletons();
 
 	// This loads global classes, so it must happen before custom loaders and savers are registered
 	ScriptServer::init_languages();
