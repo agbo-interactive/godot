@@ -3692,6 +3692,9 @@ DisplayServerMacOS::DisplayServerMacOS(const String &p_rendering_driver, WindowM
 	// Register to be notified on displays arrangement changes.
 	CGDisplayRegisterReconfigurationCallback(_displays_arrangement_changed, nullptr);
 
+	// Now that we are sure we're not headless, display our icon in the dock/task switcher.
+	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+
 	native_menu = memnew(NativeMenuMacOS);
 
 #ifdef ACCESSKIT_ENABLED
