@@ -2221,8 +2221,13 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #ifdef TOOLS_ENABLED
 	if (editor) {
 		Engine::get_singleton()->set_editor_hint(true);
+		// Only hot-reload extensions in a genuine interactive editor session. One-shot
+		// batch runs (--script, or any --quit invocation such as a headless --export-pack
+		// cook) never recompile the DLL mid-run, and on Windows the temp-copy dance can hit
+		// a locked leftover and emit a spurious copy error that fails CI cooks.
 		bool script_mode = (main_args.find("--script") != nullptr);
-		Engine::get_singleton()->set_extension_reloading_enabled(!script_mode);
+		bool oneshot_run = script_mode || quit_after > 0;
+		Engine::get_singleton()->set_extension_reloading_enabled(!oneshot_run);
 
 		// Create initialization lock file to detect crashes during startup.
 		OS::get_singleton()->create_lock_file();
