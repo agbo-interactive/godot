@@ -97,6 +97,19 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 			cd->files.insert(filename);
 		}
 	}
+
+	// If the file changed, evict any caches so future references to the file can point at the new contents.
+	// This does not affect existing references (separate concern from hot loading).
+	if (exists && p_replace_files) {
+		ResourceCache::evict(p_path);
+		// ResourceCache keys by logical path; exported packs hold ".remap"/".import" stubs instead,
+		// so also evict the stub's logical form (which lets the GDScriptCache listener see ".gd" paths).
+		if (p_path.ends_with(".remap")) {
+			ResourceCache::evict(p_path.trim_suffix(".remap"));
+		} else if (p_path.ends_with(".import")) {
+			ResourceCache::evict(p_path.trim_suffix(".import"));
+		}
+	}
 }
 
 void PackedData::remove_path(const String &p_path) {

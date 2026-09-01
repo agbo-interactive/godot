@@ -811,6 +811,9 @@ Mutex ResourceCache::lock;
 RWLock ResourceCache::path_cache_lock;
 #endif
 
+Mutex ResourceCache::listener_mutex;
+Vector<EvictionListenRecord> ResourceCache::eviction_listeners;
+
 void ResourceCache::clear() {
 	if (!resources.is_empty()) {
 		if (OS::get_singleton()->is_stdout_verbose()) {
@@ -847,6 +850,47 @@ bool ResourceCache::has(const String &p_path) {
 	}
 
 	return true;
+}
+
+bool ResourceCache::evict(const String &p_path) {
+	bool was_present = false;
+
+	{
+		MutexLock mutex_lock(lock);
+		was_present = resources.erase(p_path);
+	}
+
+	if (was_present) {
+		MutexLock mutex_lock(listener_mutex);
+		for (const EvictionListenRecord &rec : eviction_listeners) {
+			rec.listener(rec.context, p_path);
+		}
+	}
+
+	return was_present;
+}
+
+void ResourceCache::listen_for_eviction(void *p_context, void (*p_listener)(void *p_context, const String &p_path)) {
+	ResourceCache::unlisten_for_eviction(p_context);
+
+	MutexLock mutex_lock(listener_mutex);
+
+	EvictionListenRecord rec;
+	rec.context = p_context;
+	rec.listener = p_listener;
+	eviction_listeners.push_back(rec);
+}
+
+void ResourceCache::unlisten_for_eviction(void *p_context) {
+	MutexLock mutex_lock(listener_mutex);
+
+	for (int i = 0; i < eviction_listeners.size();) {
+		if (eviction_listeners[i].context == p_context) {
+			eviction_listeners.remove_at(i);
+			continue;
+		}
+		++i;
+	}
 }
 
 Ref<Resource> ResourceCache::get_ref(const String &p_path) {
