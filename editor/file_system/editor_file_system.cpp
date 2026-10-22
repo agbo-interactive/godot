@@ -3615,6 +3615,20 @@ Error EditorFileSystem::copy_file(const String &p_from, const String &p_to) {
 }
 
 Error EditorFileSystem::copy_directory(const String &p_from, const String &p_to) {
+	// Reachable from scripts: reject a root or self-nested copy up front, so it fails fast instead of
+	// recursing into the copy it just made. Globalized so res:// and absolute spellings compare equal.
+	const ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	const String from_global = project_settings->globalize_path(p_from).simplify_path();
+	ERR_FAIL_COND_V_MSG(from_global == project_settings->get_resource_path().simplify_path(), ERR_INVALID_PARAMETER, "Cannot copy the resources root.");
+	const String to_global = project_settings->globalize_path(p_to).simplify_path();
+	ERR_FAIL_COND_V_MSG(!from_global.is_absolute_path() || !to_global.is_absolute_path(), ERR_INVALID_PARAMETER, vformat("Use res:// paths, not relative ones ('%s', '%s').", p_from, p_to));
+	const String from = from_global + "/";
+	const String to = to_global + "/";
+	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_RESOURCES);
+	const bool case_sensitive = da->is_case_sensitive(p_from);
+	const bool nested = case_sensitive ? to.begins_with(from) : to.to_lower().begins_with(from.to_lower());
+	ERR_FAIL_COND_V_MSG(nested, ERR_INVALID_PARAMETER, vformat("Cannot copy directory '%s' into itself ('%s').", p_from, p_to));
+
 	// Recursively copy directories and build a map of files to copy.
 	HashMap<String, String> files;
 	bool success = _copy_directory(p_from, p_to, &files);
@@ -3731,6 +3745,8 @@ void EditorFileSystem::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_filesystem_path", "path"), &EditorFileSystem::get_filesystem_path);
 	ClassDB::bind_method(D_METHOD("get_file_type", "path"), &EditorFileSystem::get_file_type);
 	ClassDB::bind_method(D_METHOD("reimport_files", "files"), &EditorFileSystem::reimport_files);
+	ClassDB::bind_method(D_METHOD("copy_file", "from", "to"), &EditorFileSystem::copy_file);
+	ClassDB::bind_method(D_METHOD("copy_directory", "from", "to"), &EditorFileSystem::copy_directory);
 
 	ADD_SIGNAL(MethodInfo("filesystem_changed")); // May only be emitted on the main thread.
 	ADD_SIGNAL(MethodInfo("script_classes_updated"));

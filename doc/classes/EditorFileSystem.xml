@@ -10,6 +10,24 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="copy_directory">
+			<return type="int" enum="Error" />
+			<param index="0" name="from" type="String" />
+			<param index="1" name="to" type="String" />
+			<description>
+				Copies the directory at [param from] to [param to], like the FileSystem dock's [b]Duplicate...[/b] action. Copied resources are given fresh UIDs; files without a UID are copied verbatim, and resources imported with the [code]keep[/code] or [code]skip[/code] importer keep the original's UID. References between the copied files are repointed at the copies for resource formats that support dependency remapping (text and binary resources) — path and [code]uid://[/code] strings inside scripts are not rewritten. References to files outside [param from] are left unchanged.
+				[param from] and [param to] must be [code]res://[/code] paths. Returns [constant ERR_INVALID_PARAMETER] if either path is relative, [param from] is the resources root, or [param to] is, or lies inside, [param from]; or [constant FAILED] if the directory could not be read or created, a file could not be copied, a dependency could not be remapped, or [param to] is not part of the editor filesystem once copied. A failed copy is not rolled back. Returns [constant OK] otherwise. Avoid calling while the editor is scanning the filesystem (see [method is_scanning]).
+			</description>
+		</method>
+		<method name="copy_file">
+			<return type="int" enum="Error" />
+			<param index="0" name="from" type="String" />
+			<param index="1" name="to" type="String" />
+			<description>
+				Copies the file at [param from] to [param to], like the FileSystem dock's [b]Duplicate...[/b] action for a single file. The copy is given a fresh UID — unless [param from] has no UID (copied verbatim) or is imported with the [code]keep[/code] or [code]skip[/code] importer (keeps the original's UID). References inside the copy are not changed. If [param from] is loaded with unsaved changes in the editor, it is saved before copying.
+				The parent directory of [param to] must exist and be known to the editor filesystem; if it was created outside the editor and not yet scanned, [constant ERR_FILE_NOT_FOUND] is returned after the file has been written (call [method scan] first, or use [method copy_directory], which registers directories as it creates them). Avoid calling while the editor is scanning the filesystem (see [method is_scanning]). Returns [constant OK] on success, or another [enum Error] code on failure.
+			</description>
+		</method>
 		<method name="get_file_type" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="path" type="String" />
