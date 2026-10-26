@@ -114,11 +114,18 @@ private:
 
 	PackedDir *root = nullptr;
 
+	HashSet<String> runtime_packs; // Mounted after the project loaded and still serving files.
+
+	// Reused buffers that add_path() fills while add_pack() runs; PackSources call add_path(), so they can't be add_pack() locals.
+	HashSet<String> add_pack_changed_paths; // Physical paths whose content the pack being added changed.
+	LocalVector<String> add_pack_stub_paths; // ".remap"/".import" stubs in the pack being added.
+
 	static inline PackedData *singleton = nullptr;
 	bool disabled = false;
 
 	void _free_packed_dirs(PackedDir *p_dir);
 	void _get_file_paths(PackedDir *p_dir, const String &p_parent_dir, HashSet<String> &r_paths) const;
+	HashSet<String> _get_logical_paths(const HashSet<String> &p_physical_paths, const LocalVector<String> &p_stub_paths) const;
 
 	_FORCE_INLINE_ PathMD5 _get_simplified_path(const String &p_path) {
 		String simplified_path = p_path;
@@ -143,6 +150,7 @@ public:
 
 	static PackedData *get_singleton() { return singleton; }
 	Error add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key = Vector<uint8_t>());
+	void evict_runtime_packs();
 
 	void clear();
 

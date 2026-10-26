@@ -809,6 +809,8 @@ Error GDScript::reload(bool p_keep_state) {
 #endif
 
 	valid = false;
+	// What this script preloads depends on it, even when it compiles inside another script's load.
+	ResourceLoader::DependentScope dependent_scope(path);
 	GDScriptParser parser;
 	Error err;
 	if (!binary_tokens.is_empty()) {
@@ -2922,4 +2924,20 @@ Ref<GDScript> GDScriptLanguage::get_orphan_subclass(const String &p_qualified_na
 		return Ref<GDScript>();
 	}
 	return Ref<GDScript>(Object::cast_to<GDScript>(obj));
+}
+
+void GDScriptLanguage::remove_orphan_subclasses(const String &p_path, HashMap<ObjectID, String> &r_removed) {
+	const String prefix = p_path + "::";
+	LocalVector<String> names;
+	for (const KeyValue<String, ObjectID> &E : orphan_subclasses) {
+		if (E.key.begins_with(prefix)) {
+			names.push_back(E.key);
+			if (ObjectDB::get_instance(E.value)) {
+				r_removed.insert(E.value, E.key);
+			}
+		}
+	}
+	for (const String &name : names) {
+		orphan_subclasses.erase(name);
+	}
 }

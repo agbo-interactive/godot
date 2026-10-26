@@ -37,6 +37,7 @@
 #include "core/debugger/engine_debugger.h"
 #include "core/debugger/script_debugger.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/marshalls.h"
 #include "core/math/geometry_2d.h"
 #include "core/math/geometry_3d.h"
@@ -130,6 +131,10 @@ Ref<Resource> ResourceLoader::get_cached_ref(const String &p_path) {
 	return ResourceCache::get_ref(local_path);
 }
 
+void ResourceLoader::evict_runtime_packs() {
+	PackedData::get_singleton()->evict_runtime_packs();
+}
+
 bool ResourceLoader::exists(const String &p_path, const String &p_type_hint) {
 	return ::ResourceLoader::exists(p_path, p_type_hint);
 }
@@ -155,6 +160,7 @@ void ResourceLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_dependencies", "path"), &ResourceLoader::get_dependencies);
 	ClassDB::bind_method(D_METHOD("has_cached", "path"), &ResourceLoader::has_cached);
 	ClassDB::bind_method(D_METHOD("get_cached_ref", "path"), &ResourceLoader::get_cached_ref);
+	ClassDB::bind_method(D_METHOD("evict_runtime_packs"), &ResourceLoader::evict_runtime_packs);
 	ClassDB::bind_method(D_METHOD("exists", "path", "type_hint"), &ResourceLoader::exists, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("get_resource_uid", "path"), &ResourceLoader::get_resource_uid);
 	ClassDB::bind_method(D_METHOD("list_directory", "directory_path"), &ResourceLoader::list_directory);

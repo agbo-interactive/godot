@@ -228,6 +228,7 @@ private:
 	static thread_local int load_nesting;
 	static thread_local HashMap<int, HashMap<String, Ref<Resource>>> res_ref_overrides; // Outermost key is nesting level.
 	static thread_local ThreadLoadTask *curr_load_task;
+	static thread_local LocalVector<String> dependent_paths; // Logical paths whose loads are in progress on this thread.
 
 	static SafeBinaryMutex<BINARY_MUTEX_TAG> thread_load_mutex;
 	friend SafeBinaryMutex<BINARY_MUTEX_TAG> &_get_res_loader_mutex();
@@ -251,6 +252,12 @@ public:
 	static Ref<Resource> load_threaded_get(const String &p_path, Error *r_error = nullptr);
 
 	static bool is_within_load() { return load_nesting > 0; }
+
+	// Records p_path as the dependent of every resource loaded on this thread while in scope.
+	struct DependentScope {
+		DependentScope(const String &p_path) { dependent_paths.push_back(p_path); }
+		~DependentScope() { dependent_paths.resize(dependent_paths.size() - 1); }
+	};
 
 	static void resource_changed_connect(Resource *p_source, const Callable &p_callable, uint32_t p_flags);
 	static void resource_changed_disconnect(Resource *p_source, const Callable &p_callable);

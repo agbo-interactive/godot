@@ -23,6 +23,12 @@
 				This method is performed implicitly for ResourceFormatLoaders written in GDScript (see [ResourceFormatLoader] for more information).
 			</description>
 		</method>
+		<method name="evict_runtime_packs">
+			<return type="void" />
+			<description>
+				Evicts every cached resource and script served by a resource pack loaded with [method ProjectSettings.load_resource_pack] after the project started, along with everything that depends on them. Subsequent loads read them again. Existing instances keep running the evicted versions.
+			</description>
+		</method>
 		<method name="exists">
 			<return type="bool" />
 			<param index="0" name="path" type="String" />

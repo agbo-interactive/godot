@@ -33,6 +33,7 @@
 #include "core/io/resource_uid.h" // IWYU pragma: export. Make available to all resources.
 #include "core/object/gdvirtual.gen.h"
 #include "core/object/ref_counted.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/self_list.h"
 
 class Node;
@@ -195,15 +196,17 @@ public:
 VARIANT_ENUM_CAST(Resource::DeepDuplicateMode);
 
 struct EvictionListenRecord {
-	void (*listener)(void *p_context, const String &p_path);
+	// Evicts p_path from the listener's caches, adding each evicted object and its cache key to r_evicted.
+	void (*listener)(void *p_context, const String &p_path, HashMap<ObjectID, String> &r_evicted);
 	void *context;
 };
 
 class ResourceCache {
 	friend class Resource;
 	friend class ResourceLoader; // Need the lock.
-	static Mutex lock; // Lock for resources.
+	static Mutex lock; // Lock for resources and dependents.
 	static HashMap<String, Resource *> resources;
+	static HashMap<String, HashSet<String>> dependents; // Logical path -> logical paths that loaded it.
 	static Mutex listener_mutex; // Lock for eviction_listeners.
 	static Vector<EvictionListenRecord> eviction_listeners;
 #ifdef TOOLS_ENABLED
@@ -220,7 +223,9 @@ public:
 	static void get_cached_resources(List<Ref<Resource>> *p_resources);
 	static int get_cached_resource_count();
 
+	static void add_dependent(const String &p_path, const String &p_dependent);
+	static int evict_cascade(const HashSet<String> &p_paths);
 	static bool evict(const String &p_path);
-	static void listen_for_eviction(void *p_context, void (*p_listener)(void *p_context, const String &p_path));
+	static void listen_for_eviction(void *p_context, void (*p_listener)(void *p_context, const String &p_path, HashMap<ObjectID, String> &r_evicted));
 	static void unlisten_for_eviction(void *p_context);
 };

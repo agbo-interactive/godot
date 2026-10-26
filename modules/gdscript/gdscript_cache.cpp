@@ -305,6 +305,7 @@ Ref<GDScript> GDScriptCache::get_shallow_script(const String &p_path, Error &r_e
 
 	if (!p_owner.is_empty() && p_path != p_owner) {
 		singleton->dependencies[p_owner].insert(p_path);
+		ResourceCache::add_dependent(p_path, p_owner);
 	}
 	if (singleton->full_gdscript_cache.has(p_path)) {
 		return singleton->full_gdscript_cache[p_path];
@@ -348,6 +349,7 @@ Ref<GDScript> GDScriptCache::get_full_script(const String &p_path, Error &r_erro
 
 	if (!p_owner.is_empty() && p_path != p_owner) {
 		singleton->dependencies[p_owner].insert(p_path);
+		ResourceCache::add_dependent(p_path, p_owner);
 	}
 
 	Ref<GDScript> script;
@@ -500,12 +502,42 @@ void GDScriptCache::clear() {
 	singleton->static_gdscript_cache.clear();
 }
 
-void GDScriptCache::_on_resource_evicted(void *p_context, const String &p_path) {
+void GDScriptCache::_on_resource_evicted(void *p_context, const String &p_path, HashMap<ObjectID, String> &r_evicted) {
 	DEV_ASSERT(p_context == singleton);
 	DEV_ASSERT(singleton != nullptr);
-	if (p_path.ends_with(".gd")) {
-		GDScriptCache::remove_script(p_path);
+	if (!p_path.ends_with(".gd")) {
+		return;
 	}
+
+	{
+		MutexLock lock(singleton->mutex);
+		if (singleton->cleared) {
+			return;
+		}
+		if (const Ref<GDScript> *script = singleton->shallow_gdscript_cache.getptr(p_path)) {
+			r_evicted.insert((*script)->get_instance_id(), p_path);
+		}
+		if (const Ref<GDScript> *script = singleton->full_gdscript_cache.getptr(p_path)) {
+			r_evicted.insert((*script)->get_instance_id(), p_path);
+		}
+
+		// Static scripts are keyed by fully qualified name: the path, plus "::Inner" for inner classes.
+		const String prefix = p_path + "::";
+		LocalVector<String> names;
+		for (const KeyValue<String, Ref<GDScript>> &E : singleton->static_gdscript_cache) {
+			if (E.key == p_path || E.key.begins_with(prefix)) {
+				names.push_back(E.key);
+				r_evicted.insert(E.value->get_instance_id(), E.key);
+			}
+		}
+		for (const String &name : names) {
+			singleton->static_gdscript_cache.erase(name);
+		}
+	}
+	remove_script(p_path);
+
+	// Releasing the old script above orphans its live inner classes, which must not be reused by the new one.
+	GDScriptLanguage::get_singleton()->remove_orphan_subclasses(p_path, r_evicted);
 }
 
 GDScriptCache::GDScriptCache() {

@@ -656,6 +656,7 @@ public:
 
 	void add_orphan_subclass(const String &p_qualified_name, const ObjectID &p_subclass);
 	Ref<GDScript> get_orphan_subclass(const String &p_qualified_name);
+	void remove_orphan_subclasses(const String &p_path, HashMap<ObjectID, String> &r_removed);
 
 	GDScriptLanguage();
 	~GDScriptLanguage();
