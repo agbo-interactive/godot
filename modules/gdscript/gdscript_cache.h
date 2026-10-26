@@ -108,7 +108,7 @@ private:
 	static SafeBinaryMutex<BINARY_MUTEX_TAG> mutex;
 	friend SafeBinaryMutex<BINARY_MUTEX_TAG> &_get_gdscript_cache_mutex();
 
-	static void _on_resource_evicted(void *p_context, const String &p_path);
+	static void _on_resource_evicted(void *p_context, const String &p_path, HashMap<ObjectID, String> &r_evicted);
 
 public:
 	static void move_script(const String &p_from, const String &p_to);

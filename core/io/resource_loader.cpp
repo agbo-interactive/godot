@@ -274,6 +274,7 @@ ResourceLoader::LoadToken::~LoadToken() {
 
 Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_original_path, const String &p_type_hint, CacheMode p_cache_mode, Error *r_error, bool p_use_sub_threads, float *r_progress) {
 	const String &original_path = p_original_path.is_empty() ? p_path : p_original_path;
+	DependentScope dependent_scope(original_path);
 	load_nesting++;
 
 	print_verbose(vformat("Loading resource: %s remapped: %s", p_path, _path_remap(p_path)));
@@ -750,6 +751,11 @@ Ref<Resource> ResourceLoader::load(const String &p_path, const String &p_type_hi
 Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path, const String &p_type_hint, LoadThreadMode p_thread_mode, CacheMode p_cache_mode, bool p_for_user) {
 	String local_path = _validate_local_path(p_path);
 	ERR_FAIL_COND_V(local_path.is_empty(), Ref<ResourceLoader::LoadToken>());
+
+	// Recorded even when cached, so evicting this path also evicts whatever is loading it.
+	if (!dependent_paths.is_empty()) {
+		ResourceCache::add_dependent(local_path, dependent_paths[dependent_paths.size() - 1]);
+	}
 
 	bool ignoring_cache = p_cache_mode == CACHE_MODE_IGNORE || p_cache_mode == CACHE_MODE_IGNORE_DEEP;
 
@@ -1786,6 +1792,7 @@ thread_local bool ResourceLoader::import_thread = false;
 thread_local int ResourceLoader::load_nesting = 0;
 thread_local HashMap<int, HashMap<String, Ref<Resource>>> ResourceLoader::res_ref_overrides;
 thread_local ResourceLoader::ThreadLoadTask *ResourceLoader::curr_load_task = nullptr;
+thread_local LocalVector<String> ResourceLoader::dependent_paths;
 
 SafeBinaryMutex<ResourceLoader::BINARY_MUTEX_TAG> &_get_res_loader_mutex() {
 	return ResourceLoader::thread_load_mutex;

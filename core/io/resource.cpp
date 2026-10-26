@@ -802,6 +802,7 @@ Resource::~Resource() {
 }
 
 HashMap<String, Resource *> ResourceCache::resources;
+HashMap<String, HashSet<String>> ResourceCache::dependents;
 #ifdef TOOLS_ENABLED
 HashMap<String, HashMap<String, String>> ResourceCache::resource_path_cache;
 #endif
@@ -827,6 +828,7 @@ void ResourceCache::clear() {
 	}
 
 	resources.clear();
+	dependents.clear();
 }
 
 bool ResourceCache::has(const String &p_path) {
@@ -852,25 +854,85 @@ bool ResourceCache::has(const String &p_path) {
 	return true;
 }
 
-bool ResourceCache::evict(const String &p_path) {
-	bool was_present = false;
+void ResourceCache::add_dependent(const String &p_path, const String &p_dependent) {
+	if (p_path == p_dependent) {
+		return;
+	}
+	MutexLock mutex_lock(lock);
+	dependents[p_path].insert(p_dependent);
+}
 
+int ResourceCache::evict_cascade(const HashSet<String> &p_paths) {
+	HashMap<String, String> causes; // Every evicted path -> why it is evicted.
+	HashMap<String, HashMap<ObjectID, String>> evicted; // Evicted path -> objects evicted for it, with their keys.
 	{
 		MutexLock mutex_lock(lock);
-		was_present = resources.erase(p_path);
-	}
 
-	if (was_present) {
-		MutexLock mutex_lock(listener_mutex);
-		for (const EvictionListenRecord &rec : eviction_listeners) {
-			rec.listener(rec.context, p_path);
+		// Take the closure over dependents, so nothing keeps linking content that was replaced.
+		LocalVector<String> pending;
+		for (const String &path : p_paths) {
+			causes.insert(path, "replaced");
+			pending.push_back(path);
+		}
+		for (uint32_t i = 0; i < pending.size(); i++) {
+			HashMap<String, HashSet<String>>::Iterator E = dependents.find(pending[i]);
+			if (!E) {
+				continue;
+			}
+			for (const String &dependent : E->value) {
+				if (!causes.has(dependent)) {
+					causes.insert(dependent, vformat("dependent of '%s'", pending[i]));
+					pending.push_back(dependent);
+				}
+			}
+			dependents.remove(E);
+		}
+		for (const String &path : pending) {
+			evicted.insert(path, HashMap<ObjectID, String>());
+		}
+
+		// Erase each path and its "path::id" sub-resources; evicted objects forget their key so set_path() can't erase a newer entry.
+		LocalVector<String> keys;
+		for (const KeyValue<String, Resource *> &E : resources) {
+			const int separator = E.key.find("::");
+			HashMap<String, HashMap<ObjectID, String>>::Iterator P = evicted.find(separator == -1 ? E.key : E.key.substr(0, separator));
+			if (P) {
+				P->value.insert(E.value->get_instance_id(), E.key);
+				E.value->path_cache = String();
+				keys.push_back(E.key);
+			}
+		}
+		for (const String &key : keys) {
+			resources.erase(key);
 		}
 	}
 
-	return was_present;
+	// Listeners hear about every path, cached here or not, and log each object once whichever caches held it.
+	HashSet<ObjectID> logged;
+	for (KeyValue<String, HashMap<ObjectID, String>> &E : evicted) {
+		{
+			MutexLock mutex_lock(listener_mutex);
+			for (const EvictionListenRecord &rec : eviction_listeners) {
+				rec.listener(rec.context, E.key, E.value);
+			}
+		}
+		for (const KeyValue<ObjectID, String> &O : E.value) {
+			if (!logged.has(O.key)) {
+				logged.insert(O.key);
+				print_line(vformat("Evicted '%s' (%s).", O.value, causes[E.key]));
+			}
+		}
+	}
+	return logged.size();
 }
 
-void ResourceCache::listen_for_eviction(void *p_context, void (*p_listener)(void *p_context, const String &p_path)) {
+bool ResourceCache::evict(const String &p_path) {
+	HashSet<String> paths;
+	paths.insert(p_path);
+	return evict_cascade(paths) > 0;
+}
+
+void ResourceCache::listen_for_eviction(void *p_context, void (*p_listener)(void *p_context, const String &p_path, HashMap<ObjectID, String> &r_evicted)) {
 	ResourceCache::unlisten_for_eviction(p_context);
 
 	MutexLock mutex_lock(listener_mutex);

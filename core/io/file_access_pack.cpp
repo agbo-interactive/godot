@@ -30,20 +30,94 @@
 
 #include "file_access_pack.h"
 
+#include "core/config/project_settings.h"
+#include "core/io/config_file.h"
 #include "core/io/file_access_encrypted.h"
 #include "core/io/file_access_patched.h"
 #include "core/object/script_language.h"
 #include "core/os/os.h"
 #include "core/version.h"
 
+static bool _is_stub_path(const String &p_path) {
+	return p_path.ends_with(".remap") || p_path.ends_with(".import");
+}
+
 Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key) {
-	for (int i = 0; i < sources.size(); i++) {
-		if (sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key)) {
-			return OK;
+	add_pack_changed_paths.clear();
+	add_pack_stub_paths.clear();
+	bool opened = false;
+	for (int i = 0; i < sources.size() && !opened; i++) {
+		opened = sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key);
+	}
+	if (!opened) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
+
+	// "res://" is the project's own directory, which ProjectSettings mounts on demand; it is never a runtime pack.
+	if (p_path != "res://" && ProjectSettings::get_singleton() && ProjectSettings::get_singleton()->is_project_loaded()) {
+		if (runtime_packs.has(p_path)) {
+			print_line(vformat("Resource pack '%s' re-mounted, %d files changed.", p_path, add_pack_changed_paths.size()));
+		}
+		runtime_packs.insert(p_path);
+	}
+
+	// Evict what changed under the logical keys caches use, so new loads resolve to the new content.
+	if (!add_pack_changed_paths.is_empty()) {
+		const int evicted = ResourceCache::evict_cascade(_get_logical_paths(add_pack_changed_paths, add_pack_stub_paths));
+		print_line(vformat("Resource pack '%s' replaced %d files, evicted %d cached objects.", p_path, add_pack_changed_paths.size(), evicted));
+	}
+	return OK;
+}
+
+void PackedData::evict_runtime_packs() {
+	HashSet<String> serving_packs;
+	HashSet<String> physical_paths;
+	LocalVector<String> stub_paths;
+	for (const String &path : get_file_paths()) {
+		const PackedFile *file = files.getptr(_get_simplified_path(path));
+		if (file == nullptr || !runtime_packs.has(file->pack)) {
+			continue;
+		}
+		serving_packs.insert(file->pack);
+		physical_paths.insert(path);
+		if (_is_stub_path(path)) {
+			stub_paths.push_back(path);
+		}
+	}
+	// Packs whose files have all been shadowed by newer ones serve nothing, so stop tracking them.
+	runtime_packs = serving_packs;
+	ResourceCache::evict_cascade(_get_logical_paths(physical_paths, stub_paths));
+}
+
+HashSet<String> PackedData::_get_logical_paths(const HashSet<String> &p_physical_paths, const LocalVector<String> &p_stub_paths) const {
+	// Stubs stay byte-identical across versions while their targets change, so map each target back to its stub's logical path.
+	HashMap<String, String> stub_targets;
+	for (const String &stub_path : p_stub_paths) {
+		Ref<ConfigFile> stub;
+		stub.instantiate();
+		ERR_CONTINUE_MSG(stub->load("res://" + stub_path) != OK, vformat("Can't read resource pack stub '%s'.", stub_path));
+		if (!stub->has_section("remap")) {
+			continue;
+		}
+		const String logical_path = "res://" + stub_path.get_basename();
+		for (const String &key : stub->get_section_keys("remap")) {
+			if (key.begins_with("path")) {
+				stub_targets[String(stub->get_value("remap", key)).trim_prefix("res://")] = logical_path;
+			}
 		}
 	}
 
-	return ERR_FILE_UNRECOGNIZED;
+	HashSet<String> logical_paths;
+	for (const String &path : p_physical_paths) {
+		if (_is_stub_path(path)) {
+			logical_paths.insert("res://" + path.get_basename());
+		} else if (const String *logical_path = stub_targets.getptr(path)) {
+			logical_paths.insert(*logical_path);
+		} else {
+			logical_paths.insert("res://" + path);
+		}
+	}
+	return logical_paths;
 }
 
 void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle, bool p_delta, const String &p_salt) {
@@ -51,6 +125,14 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 	PathMD5 pmd5(simplified_path.md5_buffer());
 
 	bool exists = files.has(pmd5);
+
+	// Identical content is not a change, which keeps re-mounting a pack idempotent.
+	if (exists && (p_delta || (p_replace_files && memcmp(files[pmd5].md5, p_md5, 16) != 0))) {
+		add_pack_changed_paths.insert(simplified_path);
+	}
+	if (_is_stub_path(simplified_path)) {
+		add_pack_stub_paths.push_back(simplified_path);
+	}
 
 	PackedFile pf;
 	pf.encrypted = p_encrypted;
@@ -95,19 +177,6 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 		// Don't add as a file if the path points to a directory.
 		if (!filename.is_empty()) {
 			cd->files.insert(filename);
-		}
-	}
-
-	// If the file changed, evict any caches so future references to the file can point at the new contents.
-	// This does not affect existing references (separate concern from hot loading).
-	if (exists && p_replace_files) {
-		ResourceCache::evict(p_path);
-		// ResourceCache keys by logical path; exported packs hold ".remap"/".import" stubs instead,
-		// so also evict the stub's logical form (which lets the GDScriptCache listener see ".gd" paths).
-		if (p_path.ends_with(".remap")) {
-			ResourceCache::evict(p_path.trim_suffix(".remap"));
-		} else if (p_path.ends_with(".import")) {
-			ResourceCache::evict(p_path.trim_suffix(".import"));
 		}
 	}
 }
